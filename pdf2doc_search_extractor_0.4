@@ -1,0 +1,144 @@
+import pdfminer
+import docx
+import os
+from docx.enum.text import WD_COLOR_INDEX
+import re
+
+from pdfminer.layout import LAParams, LTTextBox, LTTextLine, LTText
+from pdfminer.pdfpage import PDFPage
+from pdfminer.pdfinterp import PDFResourceManager
+from pdfminer.pdfinterp import PDFPageInterpreter
+from pdfminer.converter import PDFPageAggregator
+
+keyWords = re.compile(r'with no\b|cariti\w+|abessi\w+|privati\w+|without|\w+less|absen\w+', re.IGNORECASE)
+toExclude = ['unless', 'regardless', 'nevertheless', 'nonetheless']
+
+listOfPdfs = [file for file in os.listdir(os.getcwd()) if file.endswith('.pdf')]
+
+# Process a pdf file and find pages containing the keywords
+def getText(fileName):
+    fp = open(fileName, 'rb')
+    rsrcmgr = PDFResourceManager()
+    laparams = LAParams()
+    device = PDFPageAggregator(rsrcmgr, laparams=laparams)
+    interpreter = PDFPageInterpreter(rsrcmgr, device)
+    pages = PDFPage.get_pages(fp)
+
+    listOfPages = list(pages)
+        
+    founds = list()
+    
+    for page in listOfPages:
+        interpreter.process_page(page)
+        layout = device.get_result()
+        pageText = ' '.join([lobj.get_text() for lobj in layout if isinstance(lobj, LTTextBox)])
+
+        # Erase spaces between each letter in some paragraphs
+        tooManySpaces1 = re.compile('(?<=\s\s\w)\s')
+        pageText2 = tooManySpaces1.sub('', pageText)
+        tooManySpaces2 = re.compile('(?<=\w\s\w)\s(?!\w\w)|(?<=\w\w)\s(?!\w\w)')
+        pageText3 = tooManySpaces2.sub('', pageText2)
+        
+        # Erase double spaces
+        doubleSpace = re.compile('\s{2,}')
+        pageText = doubleSpace.sub(' ', pageText3)
+        
+        # Screen pages with keywords
+        if re.search(keyWords, pageText):
+            matches, newRegex = exclude(keyWords, pageText)
+            if len(matches) != 0 and re.search(newRegex, pageText):    
+                founds.append("Page {}/{}".format(listOfPages.index(page)+1, len(listOfPages)))
+                founds.append(pageText)
+    return founds
+
+# Delete the words to be excluded from the list of matches found on the page
+def exclude(keyWords, text):
+    matches = re.findall(keyWords, text)
+
+    for match in matches[:]:
+        if match.lower() in toExclude:
+            matches.remove(match)            
+
+    newRegex = re.compile('|'.join([r'\b{}\b'.format(match) for match in matches]))
+    return matches, newRegex
+
+# Erase repeated pages
+def pageDups(founds):
+    paragraphs = list(dict.fromkeys(founds))
+    return paragraphs
+
+# Add the paragraphs into the doc output file
+def buildDoc(paragraphs):
+    outputFile = docx.Document()
+    for paragraph in paragraphs:
+       outputFile.add_paragraph(paragraph)
+    return outputFile
+
+def highlight(outputFile):
+    # Add highlight in bold to the page numbers and in yellow  to keyword occurrences        
+    for i in range(len(outputFile.paragraphs)):
+        paragraph = outputFile.paragraphs[i]
+        if (i + 1) % 2 == 1:
+            paragraph.runs[0].bold = True
+        else:
+            matches, newRegex = exclude(keyWords, paragraph.text)
+        
+            
+            
+            splitParagraph = re.split(newRegex, paragraph.text)
+            
+            paragraph.clear()
+            try:
+                for i in range(len(splitParagraph)):
+                    if i + 1 == len(splitParagraph):
+                        paragraph.add_run(splitParagraph[i].strip())
+                    else:
+                        paragraph.add_run(splitParagraph[i].strip() + ' ')
+                        paragraph.add_run(matches[i] + ' ').font.highlight_color = WD_COLOR_INDEX.YELLOW
+            except:
+                print(matches)
+                print(newRegex)
+                print(splitParagraph)
+                continue
+            
+    return outputFile
+
+# Count the number of results   
+def countResults(outputFile):
+    counter = 0
+    for paragraph in outputFile.paragraphs:
+        for run in paragraph.runs:
+            if run.font.highlight_color == WD_COLOR_INDEX.YELLOW:
+            #if re.match(keyWords, run.text):
+                counter += 1
+    return counter             
+
+# Add the number of results at the beginning of the file
+def addCounter(outputFile, counter):
+    firstParagraph = outputFile.paragraphs[0]
+    firstParagraphText = firstParagraph.text
+    firstParagraph.clear()
+    if counter == 1:
+        firstParagraph.add_run("The search found 1 result.\n\n").bold = True
+    else:
+        firstParagraph.add_run("The search found {} results.\n\n".format(counter)).bold = True
+    firstParagraph.add_run(firstParagraphText).bold = True
+    return outputFile
+
+# Launch the processing sequence    
+for pdfFile in listOfPdfs:
+    print("Processing file {}/{}: {}".format(listOfPdfs.index(pdfFile)+ 1, len(listOfPdfs), pdfFile))
+    founds = getText(pdfFile)
+    if len(founds) == 0:
+        outputFile = docx.Document()
+        outputFile.add_paragraph('Nothing found in this pdf file.')
+        outputFile.save('{}_searchResults.docx'.format(pdfFile[:-4]))
+    else:
+        paragraphs = pageDups(founds)
+        outputFile = buildDoc(paragraphs)
+        outputFile = highlight(outputFile)
+        counter = countResults(outputFile)
+        outputFile = addCounter(outputFile, counter)
+        outputFile.save('{}_searchResults.docx'.format(pdfFile[:-4]))
+
+
