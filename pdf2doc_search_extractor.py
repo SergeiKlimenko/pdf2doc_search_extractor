@@ -159,6 +159,3 @@ for pdfFile in listOfPdfs:
         tb = traceback.format_exc()
         with open('{}_error.txt'.format(pdfFile[:-4]), 'w') as errorLog:
             errorLog.write(tb)
-        
-        
-        
