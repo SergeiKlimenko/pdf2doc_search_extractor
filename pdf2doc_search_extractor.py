@@ -1,3 +1,5 @@
+#! /usr/bin/env python3
+
 import pdfminer
 import docx
 import os
@@ -5,6 +7,7 @@ from docx.enum.text import WD_COLOR_INDEX
 import re
 import logging
 import traceback
+import PyPDF2
 
 from pdfminer.layout import LAParams, LTTextBox, LTTextLine, LTText
 from pdfminer.pdfpage import PDFPage
@@ -59,7 +62,23 @@ def getText(fileName):
             if len(matches) != 0 and re.search(newRegex, pageText):
                 founds.append("Page {}/{}".format(listOfPages.index(page)+1, len(listOfPages)))
                 founds.append(pageText)
+    fp.close()
 
+    return founds
+
+def getText2(fileName):
+    founds = list()
+
+    fp = open(fileName, 'rb')
+    pdf_reader = PyPDF2.PdfFileReader(fp)
+    for page in pdf_reader.pages:
+        pageText = page.extractText()
+        if re.search(keyWords, pageText):
+            matches, newRegex = exclude(keyWords, pageText)
+            if len(matches) != 0 and re.search(newRegex, pageText):
+                founds.append("Page {}/{}".format(list(pdf_reader.pages).index(page)+1, pdf_reader.numPages))
+                founds.append(pageText)
+    fp.close()
     return founds
 
 # Delete the words to be excluded from the list of matches found on the page
@@ -146,16 +165,18 @@ for pdfFile in listOfPdfs:
     try:
         founds = getText(pdfFile)
         if len(founds) == 0:
-            outputFile = docx.Document()
-            outputFile.add_paragraph('Nothing found in this pdf file.')
-            outputFile.save('{}_nothingFound.docx'.format(pdfFile[:-4]))
+            founds = getText2(pdfFile)
+            if len(founds) == 0:
+                outputFile = docx.Document()
+                outputFile.add_paragraph('Nothing found in this pdf file.')
+                outputFile.save('{}_nothingFound.docx'.format(pdfFile[:-4].replace(' ', '_')))
         else:
             outputFile = buildDoc(founds)
             outputFile = highlight(outputFile)
             counter = countResults(outputFile)
             outputFile = addCounter(outputFile, counter)
-            outputFile.save('{}_searchResults.docx'.format(pdfFile[:-4]))
+            outputFile.save('{}_searchResults.docx'.format(pdfFile[:-4].replace(' ', '_')))
     except Exception as e:
         tb = traceback.format_exc()
-        with open('{}_error.txt'.format(pdfFile[:-4]), 'w') as errorLog:
+        with open('{}_error.txt'.format(pdfFile[:-4].replace(' ', '_'), 'w')) as errorLog:
             errorLog.write(tb)
