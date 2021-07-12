@@ -1,5 +1,5 @@
 # pdf2doc_search_extractor
-
+A script for saving pages with keywords from pdf files into doc files
 
 This script 
 * searches for keywords from a provided list in all pdf files in its current directory
